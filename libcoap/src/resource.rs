@@ -35,7 +35,6 @@ use crate::{
     protocol::{CoapMessageCode, CoapMessageType, CoapRequestCode},
     session::{CoapServerSession, CoapSessionCommon},
 };
-use crate::resource::AddAttrEnum::COAP_ATTR_FLAG_NONE;
 
 // Trait aliases are experimental
 //trait CoapMethodHandlerFn<D> = FnMut(&D, &mut CoapSession, &CoapRequestMessage, &mut CoapResponseMessage);
