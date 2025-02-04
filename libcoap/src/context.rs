@@ -57,6 +57,12 @@ use crate::{
     transport::CoapEndpoint,
 };
 
+//TODO: New feature?
+use libcoap_sys::{
+    coap_join_mcast_group_intf,
+};
+use std::ffi::CString;
+
 static COAP_STARTUP_ONCE: Once = Once::new();
 
 #[inline(always)]
@@ -405,6 +411,34 @@ impl CoapContext<'_> {
     #[cfg(feature = "dtls")]
     pub fn add_endpoint_dtls(&mut self, addr: SocketAddr) -> Result<(), EndpointCreationError> {
         self.add_endpoint(addr, coap_proto_t_COAP_PROTO_DTLS)
+    }
+
+    /// Joins a multicast group on the specified interface.
+    ///
+    /// # Arguments
+    /// `group_address` - The multicast group address to join (e.g., "ff03::fd").
+    /// `listen_interface` - The name of the network interface to listen on (e.g., "eth0").
+    /// `None`, the default interface will be used.
+    pub fn join_mcast_group_intf(
+        &mut self,
+        group_address: &str,
+        listen_interface: Option<&str>,
+    ) -> Result<(), ContextConfigurationError> {
+        let mut inner_ref = self.inner.borrow_mut();
+        let mcast_group = CString::new(group_address).map_err(|_| ContextConfigurationError::Unknown)?;
+        let listen_interface = listen_interface
+            .map(|s| CString::new(s).map_err(|_| ContextConfigurationError::Unknown))
+            .transpose()?;
+
+        // TODO: SECURITY - validate input, is unwrap safe?
+        unsafe {
+            coap_join_mcast_group_intf(
+                inner_ref.raw_context,
+                mcast_group.as_ptr(),
+                listen_interface.as_ref().map(|v| v.as_ptr()).unwrap_or(std::ptr::null()),
+            );
+        };
+        Ok(())
     }
 
     // /// TODO

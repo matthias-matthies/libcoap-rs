@@ -17,9 +17,11 @@ use std::{
     fmt::{Debug, Formatter},
     marker::PhantomData,
 };
+use std::ffi::CString;
+use std::iter::Enumerate;
 
 use libcoap_sys::{
-    coap_delete_resource, coap_new_str_const, coap_pdu_t, coap_register_request_handler, coap_resource_get_uri_path,
+    COAP_ATTR_FLAGS_RELEASE_NAME, COAP_ATTR_FLAGS_RELEASE_VALUE, coap_add_attr, coap_delete_resource, coap_new_str_const, coap_pdu_t, coap_register_request_handler, coap_resource_get_uri_path,
     coap_resource_get_userdata, coap_resource_init, coap_resource_notify_observers, coap_resource_set_get_observable,
     coap_resource_set_mode, coap_resource_set_userdata, coap_resource_t, coap_send_rst, coap_session_t, coap_string_t,
     COAP_RESOURCE_FLAGS_NOTIFY_CON, COAP_RESOURCE_FLAGS_NOTIFY_NON, COAP_RESOURCE_FLAGS_RELEASE_URI,
@@ -33,6 +35,7 @@ use crate::{
     protocol::{CoapMessageCode, CoapMessageType, CoapRequestCode},
     session::{CoapServerSession, CoapSessionCommon},
 };
+use crate::resource::AddAttrEnum::COAP_ATTR_FLAG_NONE;
 
 // Trait aliases are experimental
 //trait CoapMethodHandlerFn<D> = FnMut(&D, &mut CoapSession, &CoapRequestMessage, &mut CoapResponseMessage);
@@ -97,6 +100,16 @@ pub unsafe fn prepare_resource_handler_data<'a, D: Any + ?Sized + Debug>(
     }
 }
 
+const COAP_ATTR_FLAG_NONE: u8 = 0x0;
+const COAP_ATTR_FLAGS_RELEASE_NAME: u8 = 0x1;
+const COAP_ATTR_FLAGS_RELEASE_VALUE: u8 = 0x2;
+
+enum AddAttrEnum {
+    COAP_ATTR_FLAG_NONE,
+    COAP_ATTR_FLAGS_RELEASE_NAME,
+    COAP_ATTR_FLAGS_RELEASE_VALUE,
+}
+
 /// Trait with functions relating to [CoapResource]s with an unknown data type.
 pub trait UntypedCoapResource: Any + Debug {
     /// Returns the uri_path this resource responds to.
@@ -134,6 +147,9 @@ pub trait UntypedCoapResource: Any + Debug {
 #[derive(Debug)]
 pub struct CoapResource<D: Any + ?Sized + Debug> {
     inner: CoapFfiRcCell<CoapResourceInner<D>>,
+    /// Key - Value map for coap attributes usually used for /.well-known/core
+    /// #[cfg(feature = "wck")] TODO: Put into feature?
+    attribute_map: Vec<(CString, CString)>,
 }
 
 /// Container for resource handlers for various CoAP methods.
@@ -258,7 +274,10 @@ impl<D: Any + ?Sized + Debug> CoapResource<D> {
             coap_resource_set_userdata(raw_resource, inner.create_raw_weak());
             inner
         };
-        Self::from(inner)
+        CoapResource {
+            inner,
+            attribute_map: Vec::new(), // Initialize the attribute map
+        }
     }
 
     /// Notify any observers about changes to this resource.
@@ -310,6 +329,25 @@ impl<D: Any + ?Sized + Debug> CoapResource<D> {
                 inner.raw_resource,
                 code.to_raw_request(),
                 inner.handlers.handler(code).map(|h| h.raw_handler),
+            );
+        }
+    }
+    // TODO: Decide on naming and placement
+    // TODO: Parameterize (look at new for an example)
+    pub fn add_attr(&mut self, name: &str, value: &str, flag: Option<AddAttrEnum>) {
+        let mut inner = self.inner.borrow_mut();
+        let name = CString::new(name).expect("CString::new failed for name");
+        let value = CString::new(value).expect("CString::new failed for value");
+
+        // Store the attribute in the resource
+        self.attribute_map.push((name.clone(), value.clone()));
+
+        // Safe name value pair in Resource
+        unsafe {
+            let name_ptr = coap_new_str_const(name.as_ptr(), name.as_bytes().len());
+            let value_ptr = coap_new_str_const(value.as_ptr(), value.as_bytes().len());
+            coap_add_attr(
+                inner.raw_resource, name_ptr, value_ptr, (flag.unwrap_or(COAP_ATTR_FLAG_NONE)) as u8
             );
         }
     }
