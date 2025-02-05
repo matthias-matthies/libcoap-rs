@@ -103,10 +103,17 @@ const COAP_ATTR_FLAG_NONE: u8 = 0x0;
 const COAP_ATTR_FLAGS_RELEASE_NAME: u8 = 0x1;
 const COAP_ATTR_FLAGS_RELEASE_VALUE: u8 = 0x2;
 
-enum AddAttrEnum {
+#[repr(u8)]
+pub enum AddAttrEnum {
     COAP_ATTR_FLAG_NONE,
     COAP_ATTR_FLAGS_RELEASE_NAME,
     COAP_ATTR_FLAGS_RELEASE_VALUE,
+}
+
+impl Default for AddAttrEnum {
+    fn default() -> Self {
+        AddAttrEnum::COAP_ATTR_FLAG_NONE
+    }
 }
 
 /// Trait with functions relating to [CoapResource]s with an unknown data type.
@@ -335,18 +342,22 @@ impl<D: Any + ?Sized + Debug> CoapResource<D> {
     // TODO: Parameterize (look at new for an example)
     pub fn add_attr(&mut self, name: &str, value: &str, flag: Option<AddAttrEnum>) {
         let mut inner = self.inner.borrow_mut();
-        let name = CString::new(name).expect("CString::new failed for name");
-        let value = CString::new(value).expect("CString::new failed for value");
+        // Create C strings from the provided name and value.
+        let name_cstr = CString::new(name).expect("CString::new failed for name");
+        let value_cstr = CString::new(value).expect("CString::new failed for value");
 
-        // Store the attribute in the resource
-        self.attribute_map.push((name.clone(), value.clone()));
+        // Store the attribute in the resource to ensure the C strings remain valid.
+        self.attribute_map.push((name_cstr.clone(), value_cstr.clone()));
 
-        // Safe name value pair in Resource
+        // Convert to libcoap C strings and add the attribute.
         unsafe {
-            let name_ptr = coap_new_str_const(name.as_ptr(), name.as_bytes().len());
-            let value_ptr = coap_new_str_const(value.as_ptr(), value.as_bytes().len());
+            let name_ptr = coap_new_str_const(name_cstr.as_ptr(), name_cstr.as_bytes().len());
+            let value_ptr = coap_new_str_const(value_cstr.as_ptr(), value_cstr.as_bytes().len());
             coap_add_attr(
-                inner.raw_resource, name_ptr, value_ptr, (flag.unwrap_or(COAP_ATTR_FLAG_NONE)) as u8
+                inner.raw_resource,
+                name_ptr,
+                value_ptr,
+                flag.unwrap_or(AddAttrEnum::COAP_ATTR_FLAG_NONE) as u8,
             );
         }
     }
